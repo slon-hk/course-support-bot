@@ -48,7 +48,10 @@ def create_app():
 
         # Регистрация блюпринтов
         from app.routes import main
+        from app.admin import admin  # Добавляем импорт админ-блюпринта
+
         app.register_blueprint(main)
+        app.register_blueprint(admin)  # Регистрируем админ-блюпринт
 
         # Создаем тестового админа если его нет
         try:
