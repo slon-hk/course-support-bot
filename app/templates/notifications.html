@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>
+                <i class="bi bi-bell me-2"></i>Уведомления
+                {% if notifications|length > 0 %}
+                <span class="badge bg-primary">{{ notifications|length }}</span>
+                {% endif %}
+            </h2>
+        </div>
+        <div class="col text-end">
+            <button class="btn btn-outline-primary" id="markAllRead">
+                <i class="bi bi-check-all me-2"></i>Отметить все как прочитанные
+            </button>
+        </div>
+    </div>
+
+    <div class="notifications-list">
+        {% if notifications %}
+            {% for notification in notifications %}
+            <div class="card mb-3 notification-item {% if not notification.is_read %}unread{% endif %}"
+                 data-notification-id="{{ notification.id }}">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-1">
+                            <i class="bi 
+                                {% if notification.type == 'info' %}bi-info-circle text-info
+                                {% elif notification.type == 'success' %}bi-check-circle text-success
+                                {% elif notification.type == 'warning' %}bi-exclamation-triangle text-warning
+                                {% else %}bi-x-circle text-danger{% endif %} me-2"></i>
+                            {{ notification.title }}
+                        </h5>
+                        <small class="text-muted">{{ notification.created_at|datetime }}</small>
+                    </div>
+                    <p class="card-text">{{ notification.message }}</p>
+                    {% if not notification.is_read %}
+                    <button class="btn btn-sm btn-outline-primary mark-read">
+                        <i class="bi bi-check me-2"></i>Отметить как прочитанное
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>У вас нет уведомлений
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Toast container for notifications -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="notificationToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <i class="bi bi-bell me-2"></i>
+            <strong class="me-auto" id="toastTitle"></strong>
+            <small id="toastTime"></small>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body" id="toastMessage"></div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Инициализация тостов
+    const toastElList = document.querySelectorAll('.toast');
+    const toasts = [...toastElList].map(toastEl => new bootstrap.Toast(toastEl));
+    
+    // Функция для показа уведомления
+    function showNotification(title, message, type = 'info') {
+        const toast = document.getElementById('notificationToast');
+        const toastInstance = bootstrap.Toast.getInstance(toast);
+        
+        document.getElementById('toastTitle').textContent = title;
+        document.getElementById('toastMessage').textContent = message;
+        document.getElementById('toastTime').textContent = new Date().toLocaleTimeString();
+        
+        toastInstance.show();
+    }
+    
+    // Обработка отметки одного уведомления как прочитанного
+    document.querySelectorAll('.mark-read').forEach(button => {
+        button.addEventListener('click', async function() {
+            const notificationId = this.closest('.notification-item').dataset.notificationId;
+            try {
+                const response = await fetch(`/notifications/${notificationId}/read`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                const data = await response.json();
+                if (data.success) {
+                    this.closest('.notification-item').classList.remove('unread');
+                    this.remove();
+                    showNotification('Успех', 'Уведомление отмечено как прочитанное', 'success');
+                }
+            } catch (error) {
+                showNotification('Ошибка', 'Не удалось отметить уведомление как прочитанное', 'error');
+            }
+        });
+    });
+    
+    // Обработка отметки всех уведомлений как прочитанных
+    document.getElementById('markAllRead').addEventListener('click', async function() {
+        try {
+            const response = await fetch('/notifications/mark-all-read', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+            const data = await response.json();
+            if (data.success) {
+                document.querySelectorAll('.notification-item.unread').forEach(item => {
+                    item.classList.remove('unread');
+                    item.querySelector('.mark-read')?.remove();
+                });
+                showNotification('Успех', 'Все уведомления отмечены как прочитанные', 'success');
+            }
+        } catch (error) {
+            showNotification('Ошибка', 'Не удалось отметить уведомления как прочитанные', 'error');
+        }
+    });
+});
+</script>
+
+<style>
+.notification-item {
+    transition: all 0.3s ease;
+}
+
+.notification-item.unread {
+    border-left: 4px solid var(--bs-primary);
+    background-color: var(--bs-gray-100);
+}
+
+.toast-container {
+    z-index: 1050;
+}
+</style>
+{% endblock %}

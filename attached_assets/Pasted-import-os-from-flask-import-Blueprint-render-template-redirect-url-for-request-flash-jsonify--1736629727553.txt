@@ -1,0 +1,462 @@
+import os
+from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, send_from_directory
+from app.models import Course, Material, MaterialFile, User, Notification
+from app import db
+import logging
+from app.services.file_processor import FileProcessor
+import shutil
+from app.services.notification_service import NotificationService
+from werkzeug.utils import secure_filename
+from transliterate import translit
+from ai import answer_question
+
+logger = logging.getLogger(__name__)
+
+main = Blueprint('main', __name__)
+
+@main.route('/')
+def index():
+    """
+    Главная страница с админ-панелью
+    """
+    courses = Course.query.all()
+    return render_template('index.html', courses=courses, is_admin=True)
+
+@main.route('/course/<int:course_id>')
+def course(course_id):
+    """Просмотр курса"""
+    course = Course.query.get_or_404(course_id)
+    return render_template('course/view.html', course=course)
+
+@main.route('/chat')
+def chat():
+    """Страница чата с ИИ"""
+    try:
+        # Получаем все доступные курсы
+        available_courses = Course.query.all()
+        return render_template('chat/index.html', courses=available_courses)
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке страницы чата: {str(e)}")
+        flash('Произошла ошибка при загрузке чата', 'error')
+        return redirect(url_for('main.index'))
+
+@main.route('/chat/ask', methods=['POST'])
+def ask_question():
+    """Обработка вопроса к ИИ"""
+    try:
+        course_id = request.form.get('course_id')
+        question = request.form.get('question')
+
+        if not course_id or not question:
+            return jsonify({
+                'success': False,
+                'error': 'Необходимо выбрать курс и задать вопрос'
+            }), 400
+
+        # Проверяем существование курса
+        course = Course.query.get_or_404(course_id)
+
+        # Здесь будет логика обработки вопроса через ИИ
+        # Пока возвращаем заглушку
+        response = {
+            'success': True,
+            'answer': f'Это тестовый ответ на ваш вопрос по курсу "{course.title}": {question}'
+        }
+
+        return jsonify(response)
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке вопроса: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Произошла ошибка при обработке вопроса'
+        }), 500
+
+def process_and_index_file(material_file):
+    """Обработка и индексация файла"""
+    try:
+        file_path = os.path.join(UPLOAD_FOLDER, material_file.file_path)
+        logger.info(f"Processing file: {file_path}")
+
+        # Используем FileProcessor для обработки файла и создания векторного представления
+        vector = FileProcessor.process_file(file_path)
+
+        if vector:
+            material_file.set_vector(vector)
+            material_file.is_indexed = True
+            db.session.commit()
+            logger.info(f"File {material_file.filename} successfully processed and indexed")
+            return True
+        else:
+            logger.error(f"Failed to process file {material_file.filename}")
+            return False
+
+    except Exception as e:
+        logger.error(f"Error processing file {material_file.filename}: {str(e)}")
+        return False
+
+@main.route('/add_course', methods=['POST'])
+def add_course():
+    """Добавление нового курса"""
+    try:
+        title = request.form.get('title')
+        description = request.form.get('description')
+
+        if not title:
+            flash('Название курса обязательно', 'error')
+            return redirect(url_for('main.index'))
+
+        # Получаем текущего пользователя через flask-login
+        user_id = 1 # Placeholder user ID.  Needs proper handling for system user.
+
+        course = Course(
+            title=title,
+            description=description,
+            user_id=user_id
+        )
+
+        db.session.add(course)
+        db.session.commit()
+
+        logger.info(f"Создан новый курс: {title}")
+        flash('Курс успешно создан', 'success')
+
+    except Exception as e:
+        logger.error(f"Ошибка при создании курса: {str(e)}")
+        db.session.rollback()
+        flash('Произошла ошибка при создании курса', 'error')
+
+    return redirect(url_for('main.index'))
+
+@main.route('/edit_course/<int:course_id>', methods=['POST'])
+def edit_course(course_id):
+    course = Course.query.get_or_404(course_id)
+    try:
+        course.title = request.form.get('title')
+        course.description = request.form.get('description')
+        db.session.commit()
+        flash('Курс успешно обновлен', 'success')
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении курса: {str(e)}")
+        db.session.rollback()
+        flash('Произошла ошибка при обновлении курса', 'error')
+
+    return redirect(url_for('main.index'))
+
+@main.route('/delete_course/<int:course_id>', methods=['POST'])
+def delete_course(course_id):
+    course = Course.query.get_or_404(course_id)
+    try:
+        db.session.delete(course)
+        db.session.commit()
+        flash('Курс успешно удален', 'success')
+    except Exception as e:
+        logger.error(f"Ошибка при удалении курса: {str(e)}")
+        db.session.rollback()
+        flash('Произошла ошибка при удалении курса', 'error')
+
+    return redirect(url_for('main.index'))
+
+@main.route('/material/<int:material_id>')
+def material(material_id):
+    material = Material.query.get_or_404(material_id)
+    return render_template('material.html', material=material)
+
+@main.route('/add_material/<int:course_id>', methods=['POST'])
+def add_material(course_id):
+    title = request.form.get('title')
+    content = request.form.get('content')
+
+    material = Material(course_id=course_id, title=title, content=content)
+    db.session.add(material)
+    db.session.commit()
+
+    return redirect(url_for('main.course', course_id=course_id))
+
+@main.route('/edit_material/<int:material_id>', methods=['POST'])
+def edit_material(material_id):
+    material = Material.query.get_or_404(material_id)
+    material.title = request.form.get('title')
+    material.content = request.form.get('content')
+    db.session.commit()
+    return redirect(url_for('main.material', material_id=material_id))
+
+@main.route('/delete_material/<int:material_id>', methods=['POST'])
+def delete_material(material_id):
+    material = Material.query.get_or_404(material_id)
+    course_id = material.course_id
+
+    for material_file in material.files:
+        delete_material_file(material_file.id)
+
+    db.session.delete(material)
+    db.session.commit()
+    return redirect(url_for('main.course', course_id=course_id))
+
+@main.route('/upload_file/<int:material_id>', methods=['POST'])
+def upload_file(material_id):
+    """Загрузка файла для материала"""
+    try:
+        # Проверяем наличие файла в запросе
+        if 'file' not in request.files:
+            flash('Файл не выбран', 'error')
+            return redirect(url_for('main.material', material_id=material_id))
+
+        file = request.files['file']
+        if not file or file.filename == '':
+            flash('Файл не выбран', 'error')
+            return redirect(url_for('main.material', material_id=material_id))
+
+        original_filename = file.filename
+        if not allowed_file(original_filename):
+            flash(f'Недопустимый тип файла. Разрешены только: {", ".join(ALLOWED_EXTENSIONS)}', 'error')
+            return redirect(url_for('main.material', material_id=material_id))
+
+        try:
+            # Транслитерация имени файла и безопасное сохранение
+            filename_no_ext, file_ext = os.path.splitext(original_filename)
+            transliterated_filename = translit(filename_no_ext, 'ru', reversed=True)
+            safe_filename = secure_filename(transliterated_filename + file_ext)
+
+            # Создаем папку для материала
+            material_folder = os.path.join(UPLOAD_FOLDER, str(material_id))
+            os.makedirs(material_folder, exist_ok=True)
+
+            # Полный путь к файлу
+            file_path = os.path.join(material_folder, safe_filename)
+
+            # Сохраняем файл
+            file.save(file_path)
+            logger.info(f"Файл {original_filename} успешно сохранен как {safe_filename} в {file_path}")
+
+            # Создаем запись в базе данных
+            material_file = MaterialFile(
+                material_id=material_id,
+                filename=original_filename,  # Сохраняем оригинальное имя для отображения
+                file_path=os.path.join(str(material_id), safe_filename),  # Относительный путь для хранения
+                file_type=file_ext.lower()[1:],
+                is_indexed=False
+            )
+
+            db.session.add(material_file)
+            db.session.commit()
+
+            # Обрабатываем и индексируем файл
+            try:
+                vector = FileProcessor.process_file(file_path)
+
+                if vector is not None:
+                    material_file.set_vector(vector)
+                    material_file.is_indexed = True
+                    db.session.commit()
+
+                    flash('Файл успешно загружен и проиндексирован', 'success')
+                    logger.info(f"Файл {original_filename} успешно проиндексирован")
+
+                    # Добавляем уведомление об успешной загрузке
+                    notification = Notification(
+                        user_id=1,  # TODO: Replace with current_user.id when auth is implemented
+                        title='Файл обработан',
+                        message=f'Файл {original_filename} успешно загружен и проиндексирован',
+                        type='success'
+                    )
+                    db.session.add(notification)
+                    db.session.commit()
+                else:
+                    flash('Файл загружен, но возникла ошибка при индексации', 'warning')
+                    logger.error(f"Не удалось создать векторное представление для файла {original_filename}")
+            except Exception as e:
+                logger.error(f"Ошибка при индексации файла: {str(e)}")
+                flash('Файл загружен, но возникла ошибка при индексации', 'warning')
+
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении файла: {str(e)}")
+            db.session.rollback()
+            flash('Произошла ошибка при сохранении файла', 'error')
+            if 'file_path' in locals() and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception as del_e:
+                    logger.error(f"Не удалось удалить файл после ошибки: {str(del_e)}")
+
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке файла: {str(e)}")
+        flash('Произошла ошибка при загрузке файла', 'error')
+
+    return redirect(url_for('main.material', material_id=material_id))
+
+@main.route('/delete_file/<int:file_id>', methods=['POST'])
+def delete_material_file(file_id):
+    material_file = MaterialFile.query.get_or_404(file_id)
+    try:
+        file_path = os.path.join(UPLOAD_FOLDER, material_file.file_path)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        material_folder = os.path.dirname(file_path)
+        if not os.listdir(material_folder):
+            shutil.rmtree(material_folder)
+
+        vector_db = FileProcessor.get_vector_db()
+        vector_db.remove_document(file_path)
+
+        db.session.delete(material_file)
+        db.session.commit()
+
+        flash('Файл успешно удален', 'success')
+    except Exception as e:
+        logger.error(f"Ошибка при удалении файла: {str(e)}")
+        flash('Произошла ошибка при удалении файла', 'error')
+
+    return redirect(url_for('main.material', material_id=material_file.material_id))
+
+@main.route('/reindex_file/<int:file_id>', methods=['POST'])
+def reindex_file(file_id):
+    material_file = MaterialFile.query.get_or_404(file_id)
+    if process_and_index_file(material_file):
+        flash('Файл успешно переиндексирован', 'success')
+    else:
+        flash('Произошла ошибка при переиндексации файла', 'error')
+    return redirect(url_for('main.material', material_id=material_file.material_id))
+
+@main.route('/download_file/<int:file_id>')
+def download_file(file_id):
+    material_file = MaterialFile.query.get_or_404(file_id)
+    return send_from_directory(UPLOAD_FOLDER, material_file.file_path)
+
+
+@main.route('/notifications')
+def notifications():
+    """Просмотр всех уведомлений"""
+    try:
+        notifications = Notification.query.filter_by(
+            user_id=1, # Placeholder user ID. Needs proper handling.
+            is_deleted=False
+        ).order_by(Notification.created_at.desc()).all()
+
+        return render_template('notifications.html', notifications=notifications)
+    except Exception as e:
+        logger.error(f"Ошибка при получении уведомлений: {str(e)}")
+        flash('Произошла ошибка при загрузке уведомлений', 'error')
+        return redirect(url_for('main.index'))
+
+@main.route('/notifications/unread')
+def get_unread_notifications():
+    """Получение непрочитанных уведомлений"""
+    return jsonify([])  # Пустой список для демонстрации
+
+@main.route('/notifications/<int:notification_id>/read', methods=['POST'])
+def mark_notification_read(notification_id):
+    """Отметка уведомления как прочитанного"""
+    return jsonify({'success': True})
+
+@main.route('/notifications/mark-all-read', methods=['POST'])
+def mark_all_notifications_read():
+    """Отметка всех уведомлений как прочитанных"""
+    return jsonify({'success': True})
+
+UPLOAD_FOLDER = os.path.join(os.getcwd(), 'app', 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+ALLOWED_EXTENSIONS = {'docx', 'pdf'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@main.route('/admin/users/add', methods=['POST'])
+def add_user():
+    """Добавление нового пользователя"""
+    try:
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        is_admin = bool(request.form.get('is_admin'))
+
+        # Проверка существования пользователя
+        if User.query.filter_by(username=username).first():
+            flash('Пользователь с таким именем уже существует', 'error')
+            return redirect(url_for('admin.users'))
+
+        if User.query.filter_by(email=email).first():
+            flash('Пользователь с таким email уже существует', 'error')
+            return redirect(url_for('admin.users'))
+
+        # Создание пользователя
+        user = User(username=username, email=email, is_admin=is_admin)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+
+        flash('Пользователь успешно создан', 'success')
+    except Exception as e:
+        logger.error(f"Ошибка при создании пользователя: {str(e)}")
+        db.session.rollback()
+        flash('Произошла ошибка при создании пользователя', 'error')
+
+    return redirect(url_for('admin.users'))
+
+@main.route('/manage_course_access/<int:course_id>', methods=['GET', 'POST'])
+def manage_course_access(course_id):
+    """Управление доступом пользователей к курсу"""
+    try:
+        course = Course.query.get_or_404(course_id)
+
+        if request.method == 'POST':
+            user_id = request.form.get('user_id')
+            action = request.form.get('action')
+
+            if not user_id or not action:
+                flash('Неверные параметры запроса', 'error')
+                return redirect(url_for('main.manage_course_access', course_id=course_id))
+
+            user = User.query.get_or_404(user_id)
+
+            if action == 'grant':
+                if not user.has_access_to_course(course):
+                    user.available_courses.append(course)
+                    db.session.commit()
+                    flash(f'Доступ предоставлен пользователю {user.username}', 'success')
+            elif action == 'revoke':
+                if user.has_access_to_course(course):
+                    user.available_courses.remove(course)
+                    db.session.commit()
+                    flash(f'Доступ отозван у пользователя {user.username}', 'success')
+
+        # Получаем список всех пользователей для управления доступом
+        users = User.query.filter_by(is_admin=False).all()
+        return render_template('course/manage_access.html', course=course, users=users)
+
+    except Exception as e:
+        logger.error(f"Ошибка при управлении доступом к курсу: {str(e)}")
+        flash('Произошла ошибка при управлении доступом', 'error')
+        return redirect(url_for('main.index'))
+
+@main.route('/chat/ask', methods=['POST'])
+def ask_question():
+    """Обработка вопроса к ИИ"""
+    try:
+        course_id = request.form.get('course_id')
+        question = request.form.get('question')
+
+        if not course_id or not question:
+            return jsonify({
+                'success': False,
+                'error': 'Необходимо выбрать курс и задать вопрос'
+            }), 400
+
+        vector_db_path = "/path/to/your/vector_store_index"  # Укажите путь к вашей векторной базе данных
+
+        # Получаем ответ на вопрос
+        response = answer_question(question, vector_db_path)
+
+        return jsonify({
+            'success': True,
+            'answer': response
+        })
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке вопроса: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Произошла ошибка при обработке вопроса'
+        }), 500
