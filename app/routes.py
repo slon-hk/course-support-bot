@@ -204,7 +204,7 @@ def edit_course(course_id):
         return redirect(url_for('main.course', course_id=course_id))
 
 @main.route('/course/<int:course_id>/delete', methods=['POST'])
-def delete_course(course_id):
+def delete_course_old(course_id):
     """Удаление курса"""
     try:
         course = Course.query.get_or_404(course_id)
@@ -226,6 +226,31 @@ def delete_course(course_id):
         db.session.rollback()
         flash('Произошла ошибка при удалении курса', 'error')
         return redirect(url_for('main.index'))
+
+@main.route('/courses-management/delete/<int:course_id>', methods=['POST'])
+@admin_required
+def delete_course_new(course_id):
+    """Удаление курса"""
+    try:
+        course = Course.query.get_or_404(course_id)
+
+        # Удаляем все файлы курса физически
+        for material in course.materials:
+            for file in material.files:
+                if os.path.exists(file.file_path):
+                    os.remove(file.file_path)
+
+        db.session.delete(course)
+        db.session.commit()
+
+        flash('Курс успешно удален', 'success')
+        return redirect(url_for('main.courses_management'))
+
+    except Exception as e:
+        logger.error(f"Ошибка при удалении курса: {str(e)}")
+        db.session.rollback()
+        flash('Произошла ошибка при удалении курса', 'error')
+        return redirect(url_for('main.courses_management'))
 
 @main.route('/add_course', methods=['POST'])
 def add_course():
