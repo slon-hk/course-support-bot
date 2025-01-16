@@ -427,22 +427,28 @@ def manage_user_courses(user_id):
             action = request.form.get('action')
 
             if not course_id or not action:
+                logger.warning(f"Invalid request parameters: course_id={course_id}, action={action}")
                 flash('Некорректные параметры запроса', 'error')
                 return redirect(url_for('main.manage_user_courses', user_id=user_id))
 
             course = Course.query.get(course_id)
             if not course:
+                logger.error(f"Course not found: {course_id}")
                 flash('Курс не найден', 'error')
                 return redirect(url_for('main.manage_user_courses', user_id=user_id))
+
+            logger.info(f"Processing access request: user={user_id}, course={course_id}, action={action}")
 
             if action == 'grant':
                 if user.grant_course_access(course):
                     db.session.commit()
                     flash(f'Доступ к курсу "{course.title}" предоставлен', 'success')
+                    logger.info(f"Access granted: user={user_id}, course={course_id}")
             elif action == 'revoke':
                 if user.revoke_course_access(course):
                     db.session.commit()
                     flash(f'Доступ к курсу "{course.title}" отозван', 'success')
+                    logger.info(f"Access revoked: user={user_id}, course={course_id}")
 
             return redirect(url_for('main.manage_user_courses', user_id=user_id))
 
@@ -455,7 +461,7 @@ def manage_user_courses(user_id):
         )
 
     except Exception as e:
-        logger.error(f"Ошибка при управлении доступом пользователя: {str(e)}")
+        logger.error(f"Error managing user access: {str(e)}", exc_info=True)
         flash('Произошла ошибка при обработке запроса', 'error')
         return redirect(url_for('main.users_list'))
 
