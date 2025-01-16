@@ -1,7 +1,7 @@
-from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, send_file
+from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, send_file, session
 from app.models import Course, Material, MaterialFile, User, Notification
 from app import db
-from app.services.vector_search import VectorSearch # Added import
+from app.services.vector_search import VectorSearch
 import logging
 import os
 from werkzeug.utils import secure_filename
@@ -9,6 +9,11 @@ from werkzeug.utils import secure_filename
 logger = logging.getLogger(__name__)
 
 main = Blueprint('main', __name__)
+
+# Устанавливаем админ сессию для всех запросов
+@main.before_request
+def set_admin_session():
+    session['is_admin'] = True
 
 # Путь к векторной базе данных
 VECTOR_DB_PATH = os.path.join(os.getcwd(), "app", "data")

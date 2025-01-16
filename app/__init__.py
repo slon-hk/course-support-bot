@@ -1,6 +1,5 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager
 import logging
 import os
 
@@ -10,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 # Инициализация расширений
 db = SQLAlchemy()
-login_manager = LoginManager()
 
 def create_app():
     app = Flask(__name__)
@@ -26,8 +24,6 @@ def create_app():
 
     # Инициализация расширений
     db.init_app(app)
-    login_manager.init_app(app)
-    login_manager.login_view = 'auth.login'  # Указываем view для логина
 
     with app.app_context():
         # Создание необходимых директорий
@@ -49,11 +45,9 @@ def create_app():
         try:
             from app.routes import main
             from app.admin import admin
-            from app.auth import auth
 
             app.register_blueprint(main)
-            app.register_blueprint(admin, url_prefix='/admin')  # Добавляем prefix для admin
-            app.register_blueprint(auth, url_prefix='/auth')
+            app.register_blueprint(admin, url_prefix='/admin')
             logger.info("Blueprints registered successfully")
         except Exception as e:
             logger.error(f"Error registering blueprints: {e}")
@@ -82,14 +76,6 @@ def create_app():
         except Exception as e:
             logger.error(f"Error creating admin user or test course: {e}")
             db.session.rollback()
-
-        @login_manager.user_loader
-        def load_user(user_id):
-            try:
-                return User.query.get(int(user_id))
-            except Exception as e:
-                logger.error(f"Error loading user: {e}")
-                return None
 
         logger.info("Application initialized successfully")
         return app

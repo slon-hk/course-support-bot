@@ -1,5 +1,4 @@
-from flask import Blueprint, render_template, flash, redirect, url_for, request
-from flask_login import login_required, current_user
+from flask import Blueprint, render_template, flash, redirect, url_for, request, session
 from app.models import User, Course, Material, MaterialFile
 from app import db
 import logging
@@ -11,14 +10,13 @@ admin = Blueprint('admin', __name__)
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or not current_user.is_admin:
+        if not session.get('is_admin'):
             flash('У вас нет прав для доступа к этой странице', 'error')
             return redirect(url_for('main.index'))
         return f(*args, **kwargs)
-    return decorated_function  # Исправлено: возвращаем decorated_function вместо admin_required
+    return decorated_function
 
 @admin.route('/')
-@login_required
 @admin_required
 def index():
     """Главная страница административной панели"""
@@ -36,7 +34,6 @@ def index():
         return redirect(url_for('main.index'))
 
 @admin.route('/users')
-@login_required
 @admin_required
 def users():
     """Список всех пользователей"""
@@ -49,7 +46,6 @@ def users():
         return redirect(url_for('admin.index'))
 
 @admin.route('/users/add', methods=['POST'])
-@login_required
 @admin_required
 def add_user():
     """Добавление нового пользователя"""
@@ -77,7 +73,6 @@ def add_user():
         return redirect(url_for('admin.users'))
 
 @admin.route('/users/<int:user_id>/delete', methods=['POST'])
-@login_required
 @admin_required
 def delete_user(user_id):
     """Удаление пользователя"""
@@ -98,7 +93,6 @@ def delete_user(user_id):
         return redirect(url_for('admin.users'))
 
 @admin.route('/courses')
-@login_required
 @admin_required
 def courses():
     """Список всех курсов"""
@@ -111,7 +105,6 @@ def courses():
         return redirect(url_for('admin.index'))
 
 @admin.route('/materials')
-@login_required
 @admin_required
 def materials():
     """Список всех материалов"""
@@ -124,7 +117,6 @@ def materials():
         return redirect(url_for('admin.index'))
 
 @admin.route('/files')
-@login_required
 @admin_required
 def files():
     """Список всех файлов"""
@@ -137,7 +129,6 @@ def files():
         return redirect(url_for('admin.index'))
 
 @admin.route('/course/<int:course_id>/access', methods=['GET', 'POST'])
-@login_required
 @admin_required
 def manage_course_access(course_id):
     """Управление доступом к курсу"""
@@ -163,7 +154,7 @@ def manage_course_access(course_id):
             return redirect(url_for('admin.manage_course_access', course_id=course_id))
 
         users = User.query.all()
-        return render_template('course/manage_access.html', course=course, users=users)
+        return render_template('admin/course/manage_access.html', course=course, users=users)
     except Exception as e:
         logger.error(f"Ошибка при управлении доступом к курсу: {str(e)}")
         flash('Произошла ошибка при управлении доступом', 'error')

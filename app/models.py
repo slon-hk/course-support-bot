@@ -1,5 +1,4 @@
 from app import db
-from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import json
@@ -19,7 +18,7 @@ course_users = db.Table('course_users',
     db.Column('granted_by', db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
 )
 
-class User(UserMixin, db.Model):
+class User(db.Model):
     __tablename__ = 'users'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -55,9 +54,6 @@ class User(UserMixin, db.Model):
         if not password:
             return False
         return check_password_hash(self.password_hash, password)
-
-    def update_last_login(self):
-        self.last_login = datetime.utcnow()
 
     def get_unread_notifications_count(self):
         return Notification.query.filter_by(user_id=self.id, is_read=False).count()
