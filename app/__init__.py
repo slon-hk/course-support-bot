@@ -44,10 +44,7 @@ def create_app():
         # Регистрация блюпринтов
         try:
             from app.routes import main
-            from app.admin import admin
-
             app.register_blueprint(main)
-            app.register_blueprint(admin, url_prefix='/admin')
             logger.info("Blueprints registered successfully")
         except Exception as e:
             logger.error(f"Error registering blueprints: {e}")

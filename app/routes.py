@@ -5,6 +5,7 @@ from app.services.vector_search import VectorSearch
 import logging
 import os
 from werkzeug.utils import secure_filename
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,15 @@ main = Blueprint('main', __name__)
 @main.before_request
 def set_admin_session():
     session['is_admin'] = True
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('is_admin'):
+            flash('У вас нет прав для доступа к этой странице', 'error')
+            return redirect(url_for('main.index'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Путь к векторной базе данных
 VECTOR_DB_PATH = os.path.join(os.getcwd(), "app", "data")
@@ -30,6 +40,72 @@ def index():
         logger.error(f"Ошибка при загрузке списка курсов: {str(e)}")
         flash('Произошла ошибка при загрузке данных', 'error')
         return render_template('index.html', courses=[])
+
+# Административные маршруты
+@main.route('/dashboard')
+@admin_required
+def dashboard():
+    """Главная страница административной панели"""
+    try:
+        stats = {
+            'users_count': User.query.count(),
+            'courses_count': Course.query.count(),
+            'materials_count': Material.query.count(),
+            'files_count': MaterialFile.query.count()
+        }
+        return render_template('admin/index.html', stats=stats)
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке статистики: {str(e)}")
+        flash('Ошибка при загрузке статистики', 'error')
+        return redirect(url_for('main.index'))
+
+@main.route('/users-management')
+@admin_required
+def users_management():
+    """Список всех пользователей"""
+    try:
+        users = User.query.order_by(User.id.desc()).all()
+        return render_template('admin/users.html', users=users)
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке списка пользователей: {str(e)}")
+        flash('Ошибка при загрузке списка пользователей', 'error')
+        return redirect(url_for('main.dashboard'))
+
+@main.route('/courses-management')
+@admin_required
+def courses_management():
+    """Список всех курсов"""
+    try:
+        courses = Course.query.order_by(Course.created_at.desc()).all()
+        return render_template('admin/courses.html', courses=courses)
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке списка курсов: {str(e)}")
+        flash('Ошибка при загрузке списка курсов', 'error')
+        return redirect(url_for('main.dashboard'))
+
+@main.route('/materials-management')
+@admin_required
+def materials_management():
+    """Список всех материалов"""
+    try:
+        materials = Material.query.order_by(Material.created_at.desc()).all()
+        return render_template('admin/materials.html', materials=materials)
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке списка материалов: {str(e)}")
+        flash('Ошибка при загрузке списка материалов', 'error')
+        return redirect(url_for('main.dashboard'))
+
+@main.route('/files-management')
+@admin_required
+def files_management():
+    """Список всех файлов"""
+    try:
+        files = MaterialFile.query.all()
+        return render_template('admin/files.html', files=files)
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке списка файлов: {str(e)}")
+        flash('Ошибка при загрузке списка файлов', 'error')
+        return redirect(url_for('main.dashboard'))
 
 @main.route('/chat')
 def chat():
@@ -313,6 +389,7 @@ def delete_file(file_id):
         return redirect(url_for('main.course', course_id=file.material.course_id))
 
 @main.route('/users')
+@admin_required
 def users():
     """Страница управления пользователями"""
     try:
@@ -323,7 +400,9 @@ def users():
         flash('Произошла ошибка при загрузке данных', 'error')
         return redirect(url_for('main.index'))
 
+
 @main.route('/materials')
+@admin_required
 def materials():
     """Страница управления материалами"""
     try:
@@ -335,6 +414,7 @@ def materials():
         return redirect(url_for('main.index'))
 
 @main.route('/files')
+@admin_required
 def files():
     """Страница управления файлами"""
     try:
