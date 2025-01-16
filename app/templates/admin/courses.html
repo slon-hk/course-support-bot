@@ -108,7 +108,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                <form method="POST" action="{{ url_for('main.delete_course', course_id=course.id) }}">
+                <form method="POST" action="{{ url_for('main.delete_course_new', course_id=course.id) }}">
                     <button type="submit" class="btn btn-danger">
                         <i class="bi bi-trash me-2"></i>Удалить
                     </button>
