@@ -39,14 +39,23 @@ async def send_welcome(message: types.Message):
 async def handle_course_callback(callback_query: CallbackQuery):
     course_name = callback_query.data.split(":")[1]
     await callback_query.message.answer(
-        f"Можете задать вопрос по {course_name}. Напишите его в ответном сообщении."
+        f"Отлично! Вы выбрали курс {course_name}. Можете задавать любые вопросы по этому курсу."
     )
     await callback_query.answer()
 
-async def main():
-    dp.message.register(send_welcome)
-    dp.callback_query.register(handle_course_callback)
+@dp.message()
+async def handle_question(message: types.Message):
+    # Ответ на любой текстовый вопрос пользователя
+    if message.text and not message.text.startswith('/'):
+        try:
+            await message.answer(
+                f"Ваш вопрос: {message.text}\n"
+                "Скоро здесь будет реализована интеграция с API для получения ответов."
+            )
+        except Exception as e:
+            await message.answer(f"Произошла ошибка при обработке вопроса: {e}")
 
+async def main():
     await bot.delete_webhook(drop_pending_updates=True)  
     await dp.start_polling(bot)
 
