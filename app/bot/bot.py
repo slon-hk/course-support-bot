@@ -88,12 +88,6 @@ class CourseBot:
                     await message.answer("📚 На данный момент нет доступных курсов")
                     return
 
-                # Проверяем авторизацию пользователя
-                user = User.query.filter_by(telegram_id=str(message.from_user.id)).first()
-                if not user:
-                    await message.answer("❌ Пожалуйста, сначала зарегистрируйтесь")
-                    return
-
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(
                         text=f"📘 {course.title}",
@@ -108,173 +102,6 @@ class CourseBot:
         except Exception as e:
             logger.error(f"Error in ask handler: {e}", exc_info=True)
             await message.answer("❌ Произошла ошибка при получении списка курсов")
-
-    async def ask_course_callback_handler(self, callback: types.CallbackQuery):
-        """Обработчик выбора курса для вопроса"""
-        try:
-            course_id = int(callback.data.split('_')[2])
-            user_id = callback.from_user.id
-
-            with self.app.app_context():
-                course = Course.query.get(course_id)
-                if not course:
-                    await callback.answer("❌ Курс не найден")
-                    return
-
-                # Сохраняем выбранный курс для пользователя
-                self.user_states[user_id] = {
-                    'waiting_for_question': True,
-                    'course_id': course_id
-                }
-
-                await callback.message.edit_text(
-                    f"📝 Вы выбрали курс: {course.title}\n\n"
-                    "Теперь отправьте ваш вопрос в чат."
-                )
-                await callback.answer()
-
-        except Exception as e:
-            logger.error(f"Error in ask course callback handler: {e}")
-            await callback.answer("❌ Произошла ошибка при выборе курса")
-
-    async def process_question(self, message: types.Message):
-        """Обработчик вопросов после выбора курса"""
-        try:
-            user_id = message.from_user.id
-            user_state = self.user_states.get(user_id)
-
-            # Проверяем, ожидаем ли мы вопрос от этого пользователя
-            if not user_state or not user_state.get('waiting_for_question'):
-                return
-
-            course_id = user_state['course_id']
-            question = message.text
-
-            # Создаем клавиатуру только с кнопкой завершения
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Завершить диалог", callback_data="end_dialog")]
-            ])
-
-            with self.app.app_context():
-                # Проверяем существование курса
-                course = Course.query.get(course_id)
-                if not course:
-                    await message.reply("❌ Курс не найден", reply_markup=keyboard)
-                    return
-
-                # Проверяем доступ пользователя к курсу
-                user = User.query.filter_by(telegram_id=str(message.from_user.id)).first()
-                if not user or not user.has_access_to_course(course):
-                    await message.reply("❌ У вас нет доступа к этому курсу", reply_markup=keyboard)
-                    return
-
-                # Поиск ответа с использованием векторной базы данных
-                await message.reply("🔍 Ищу ответ на ваш вопрос...")
-
-                try:
-                    answer = answer_question(question, self.vector_db_path)
-
-                    if not answer or "К сожалению, я не нашел информации" in answer:
-                        await message.reply(
-                            "❌ К сожалению, я не нашел релевантной информации по вашему вопросу.\n"
-                            "💡 Попробуйте переформулировать вопрос или задать его иначе.\n\n"
-                            "Вы можете продолжать задавать вопросы по этому курсу.",
-                            reply_markup=keyboard
-                        )
-                        # Сохраняем состояние для продолжения диалога
-                        self.user_states[user_id] = {
-                            'waiting_for_question': True,
-                            'course_id': course_id
-                        }
-                        return
-
-                    # Формируем полный ответ с улучшенным форматированием
-                    full_response = (
-                        f"📚 <b>Результаты поиска по курсу</b>\n"
-                        f"<i>{course.title}</i>\n\n"
-                        f"❓ <b>Ваш вопрос:</b>\n{question}\n\n"
-                        f"🔍 <b>Найденная информация:</b>\n{answer}\n\n"
-                        "💡 Вы можете продолжать задавать вопросы по этому курсу\n"
-                        "   или нажать кнопку «Завершить диалог» для выхода"
-                    )
-
-                    # Отправляем ответ с разбиением на части при необходимости
-                    await self.send_split_message(
-                        chat_id=message.chat.id,
-                        text=full_response,
-                        parse_mode="HTML",
-                        reply_markup=keyboard
-                    )
-                    logger.info(f"Answered question for user {message.from_user.id} about course {course_id}")
-
-                    # Оставляем пользователя в режиме ожидания следующего вопроса
-                    self.user_states[user_id] = {
-                        'waiting_for_question': True,
-                        'course_id': course_id
-                    }
-
-                except Exception as e:
-                    logger.error(f"Error processing question: {str(e)}", exc_info=True)
-                    await message.reply(
-                        "❌ Произошла ошибка при обработке запроса. "
-                        "Вы можете попробовать задать вопрос еще раз или завершить диалог.",
-                        reply_markup=keyboard
-                    )
-
-        except Exception as e:
-            user_id = message.from_user.id  # Определяем user_id здесь для доступности в блоке очистки
-            logger.error(f"Error processing question: {e}", exc_info=True)
-            await message.reply(
-                "❌ Произошла ошибка при обработке вашего вопроса. "
-                "Пожалуйста, используйте /ask чтобы начать заново.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="✅ Завершить диалог", callback_data="end_dialog")]
-                ])
-            )
-            if user_id:  # Проверяем определен ли user_id
-                self.user_states.pop(user_id, None)
-
-    async def after_question_callback_handler(self, callback: types.CallbackQuery):
-        """Обработчик действий после получения ответа на вопрос"""
-        try:
-            action = callback.data
-            user_id = callback.from_user.id
-
-            if action == "end_dialog":
-                # Очищаем состояние пользователя и завершаем диалог
-                if user_id in self.user_states:
-                    self.user_states.pop(user_id)
-                await callback.message.edit_text(
-                    "✅ Диалог завершен.\n"
-                    "Используйте /ask чтобы начать новый диалог с выбором курса."
-                )
-
-            await callback.answer()
-
-        except Exception as e:
-            logger.error(f"Error in after question callback handler: {e}")
-            await callback.answer("❌ Произошла ошибка")
-
-    async def help_handler(self, message: types.Message):
-        """Обработчик команды /help"""
-        try:
-            help_text = (
-                "🔍 Справка по использованию бота:\n\n"
-                "1️⃣ /start - Начать работу с ботом\n"
-                "2️⃣ /courses - Показать список доступных курсов\n"
-                "3️⃣ /ask - Задать вопрос по материалам курса\n"
-                "4️⃣ /help - Показать это сообщение\n\n"
-                "Как задать вопрос:\n"
-                "1. Используйте команду /ask\n"
-                "2. Выберите курс из списка\n"
-                "3. Введите ваш вопрос\n"
-                "4. Получите ответ с релевантной информацией\n"
-                "5. Продолжайте задавать вопросы"
-            )
-            await message.reply(help_text)
-        except Exception as e:
-            logger.error(f"Error in help handler: {e}", exc_info=True)
-            await message.reply("❌ Произошла ошибка при обработке команды")
 
     async def list_courses_handler(self, message: types.Message):
         """Обработчик команды /courses"""
@@ -353,18 +180,142 @@ class CourseBot:
             logger.error(f"Error in materials callback handler: {e}")
             await callback.answer("❌ Произошла ошибка")
 
-    async def start_polling(self):
-        """Запуск бота"""
+    async def help_handler(self, message: types.Message):
+        """Обработчик команды /help"""
         try:
-            logger.info("Starting bot polling...")
-            await self.dp.start_polling(self.bot)
+            help_text = (
+                "🔍 Справка по использованию бота:\n\n"
+                "1️⃣ /start - Начать работу с ботом\n"
+                "2️⃣ /courses - Показать список доступных курсов\n"
+                "3️⃣ /ask - Задать вопрос по материалам курса\n"
+                "4️⃣ /help - Показать это сообщение\n\n"
+                "Как задать вопрос:\n"
+                "1. Используйте команду /ask\n"
+                "2. Выберите курс из списка\n"
+                "3. Введите ваш вопрос\n"
+                "4. Получите ответ с релевантной информацией\n"
+                "5. Продолжайте задавать вопросы"
+            )
+            await message.reply(help_text)
         except Exception as e:
-            logger.error(f"Error starting bot: {e}")
-            raise
+            logger.error(f"Error in help handler: {e}", exc_info=True)
+            await message.reply("❌ Произошла ошибка при обработке команды")
+
+    async def process_question(self, message: types.Message):
+        """Обработчик вопросов после выбора курса"""
+        try:
+            user_id = message.from_user.id
+            user_state = self.user_states.get(user_id)
+
+            # Проверяем, ожидаем ли мы вопрос от этого пользователя
+            if not user_state or not user_state.get('waiting_for_question'):
+                return
+
+            course_id = user_state['course_id']
+            question = message.text
+
+            # Создаем клавиатуру с кнопкой завершения
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Завершить диалог", callback_data="end_dialog")]
+            ])
+
+            with self.app.app_context():
+                # Проверяем существование курса
+                course = Course.query.get(course_id)
+                if not course:
+                    await message.reply("❌ Курс не найден", reply_markup=keyboard)
+                    return
+
+                # Поиск ответа с использованием векторной базы данных
+                await message.reply("🔍 Ищу ответ на ваш вопрос...")
+
+                try:
+                    answer = answer_question(question, self.vector_db_path)
+
+                    if not answer or "К сожалению, я не нашел информации" in answer:
+                        await message.reply(
+                            "❌ К сожалению, я не нашел релевантной информации по вашему вопросу.\n"
+                            "💡 Попробуйте переформулировать вопрос или задать его иначе.\n\n"
+                            "Вы можете продолжать задавать вопросы по этому курсу.",
+                            reply_markup=keyboard
+                        )
+                        # Сохраняем состояние для продолжения диалога
+                        self.user_states[user_id] = {
+                            'waiting_for_question': True,
+                            'course_id': course_id
+                        }
+                        return
+
+                    # Формируем полный ответ с улучшенным форматированием
+                    full_response = (
+                        f"📚 <b>Результаты поиска по курсу</b>\n"
+                        f"<i>{course.title}</i>\n\n"
+                        f"❓ <b>Ваш вопрос:</b>\n{question}\n\n"
+                        f"🔍 <b>Найденная информация:</b>\n{answer}\n\n"
+                        "💡 Вы можете продолжать задавать вопросы по этому курсу\n"
+                        "   или нажать кнопку «Завершить диалог» для выхода"
+                    )
+
+                    # Отправляем ответ с разбиением на части при необходимости
+                    await self.send_split_message(
+                        chat_id=message.chat.id,
+                        text=full_response,
+                        parse_mode="HTML",
+                        reply_markup=keyboard
+                    )
+                    logger.info(f"Answered question for user {message.from_user.id} about course {course_id}")
+
+                    # Оставляем пользователя в режиме ожидания следующего вопроса
+                    self.user_states[user_id] = {
+                        'waiting_for_question': True,
+                        'course_id': course_id
+                    }
+
+                except Exception as e:
+                    logger.error(f"Error processing question: {str(e)}", exc_info=True)
+                    await message.reply(
+                        "❌ Произошла ошибка при обработке запроса. "
+                        "Вы можете попробовать задать вопрос еще раз или завершить диалог.",
+                        reply_markup=keyboard
+                    )
+
+        except Exception as e:
+            user_id = message.from_user.id
+            logger.error(f"Error processing question: {e}", exc_info=True)
+            await message.reply(
+                "❌ Произошла ошибка при обработке вашего вопроса. "
+                "Пожалуйста, используйте /ask чтобы начать заново.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="✅ Завершить диалог", callback_data="end_dialog")]
+                ])
+            )
+            if user_id:
+                self.user_states.pop(user_id, None)
+
+    async def after_question_callback_handler(self, callback: types.CallbackQuery):
+        """Обработчик действий после получения ответа на вопрос"""
+        try:
+            action = callback.data
+            user_id = callback.from_user.id
+
+            if action == "end_dialog":
+                # Очищаем состояние пользователя и завершаем диалог
+                if user_id in self.user_states:
+                    self.user_states.pop(user_id)
+                await callback.message.edit_text(
+                    "✅ Диалог завершен.\n"
+                    "Используйте /ask чтобы начать новый диалог с выбором курса."
+                )
+
+            await callback.answer()
+
+        except Exception as e:
+            logger.error(f"Error in after question callback handler: {e}")
+            await callback.answer("❌ Произошла ошибка")
 
     async def send_split_message(self, chat_id: int, text: str, parse_mode=None, reply_markup=None):
         """Отправка длинного сообщения с разбиением на части"""
-        MAX_MESSAGE_LENGTH = 3000  # Maximum length for a single message
+        MAX_MESSAGE_LENGTH = 3000
 
         try:
             if len(text) <= MAX_MESSAGE_LENGTH:
@@ -382,12 +333,7 @@ class CourseBot:
                     parts.append(text)
                     break
 
-                # Find the best split point
-                split_point = text[:MAX_MESSAGE_LENGTH].rfind('</b>')
-                if split_point == -1:
-                    split_point = text[:MAX_MESSAGE_LENGTH].rfind('</i>')
-                if split_point == -1:
-                    split_point = text[:MAX_MESSAGE_LENGTH].rfind('\n')
+                split_point = text[:MAX_MESSAGE_LENGTH].rfind('\n')
                 if split_point == -1:
                     split_point = text[:MAX_MESSAGE_LENGTH].rfind('. ')
                 if split_point == -1:
@@ -395,70 +341,25 @@ class CourseBot:
                 if split_point == -1:
                     split_point = MAX_MESSAGE_LENGTH
 
-                # Add part and prepare for next iteration
-                part = text[:split_point]
-
-                # Handle HTML tags
-                if parse_mode == "HTML":
-                    # Count open tags
-                    open_b = part.count('<b>') - part.count('</b>')
-                    open_i = part.count('<i>') - part.count('</i>')
-
-                    # Close open tags
-                    if open_b > 0:
-                        part += '</b>' * open_b
-                    if open_i > 0:
-                        part += '</i>' * open_i
-
-                parts.append(part)
-
-                # Prepare next part
+                parts.append(text[:split_point])
                 text = text[split_point:].lstrip()
 
-                # Restore HTML tags for next part
-                if parse_mode == "HTML":
-                    if open_b > 0:
-                        text = '<b>' * open_b + text
-                    if open_i > 0:
-                        text = '<i>' * open_i + text
-
-            # Send message parts
-            total_parts = len(parts)
-            for i, part in enumerate(parts):
-                try:
-                    # Add part indicator
-                    if total_parts > 1:
-                        if parse_mode == "HTML":
-                            part += f"\n\n<i>📄 Часть {i+1} из {total_parts}</i>"
-                        else:
-                            part += f"\n\n📄 Часть {i+1} из {total_parts}"
-
-                    # Send with appropriate markup
-                    if i == total_parts - 1:  # Last part
-                        await self.bot.send_message(
-                            chat_id=chat_id,
-                            text=part,
-                            parse_mode=parse_mode,
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        await self.bot.send_message(
-                            chat_id=chat_id,
-                            text=part,
-                            parse_mode=parse_mode
-                        )
-
-                    # Add small delay between messages
-                    if i < total_parts - 1:
-                        await asyncio.sleep(0.5)
-
-                except Exception as e:
-                    logger.error(f"Error sending message part {i+1}: {str(e)}")
+            for i, part in enumerate(parts, 1):
+                if i == len(parts):  # Last part
                     await self.bot.send_message(
                         chat_id=chat_id,
-                        text=f"❌ Ошибка при отправке части {i+1} сообщения",
-                        parse_mode=None
+                        text=part,
+                        parse_mode=parse_mode,
+                        reply_markup=reply_markup
                     )
+                else:
+                    await self.bot.send_message(
+                        chat_id=chat_id,
+                        text=part,
+                        parse_mode=parse_mode
+                    )
+                if i < len(parts):
+                    await asyncio.sleep(0.5)
 
         except Exception as e:
             logger.error(f"Error in send_split_message: {str(e)}")
@@ -466,3 +367,41 @@ class CourseBot:
                 chat_id=chat_id,
                 text="❌ Произошла ошибка при отправке сообщения"
             )
+
+    async def start_polling(self):
+        """Запуск бота"""
+        try:
+            logger.info("Starting bot polling...")
+            await self.dp.start_polling(self.bot)
+        except Exception as e:
+            logger.error(f"Error starting bot: {e}")
+            raise
+
+    async def ask_course_callback_handler(self, callback: types.CallbackQuery):
+        """Обработчик выбора курса для вопроса"""
+        try:
+            course_id = int(callback.data.split('_')[2])  # Используем индекс 2, так как формат 'ask_course_ID'
+            user_id = callback.from_user.id
+
+            with self.app.app_context():
+                course = Course.query.get(course_id)
+                if not course:
+                    await callback.answer("❌ Курс не найден")
+                    return
+
+                # Сохраняем выбранный курс для пользователя
+                self.user_states[user_id] = {
+                    'waiting_for_question': True,
+                    'course_id': course_id
+                }
+
+                await callback.message.edit_text(
+                    f"📝 Вы выбрали курс: {course.title}\n\n"
+                    "Теперь отправьте ваш вопрос в чат.\n"
+                    "Вы можете задавать вопросы непрерывно, пока не нажмете кнопку «Завершить диалог»"
+                )
+                await callback.answer()
+
+        except Exception as e:
+            logger.error(f"Error in ask course callback handler: {e}")
+            await callback.answer("❌ Произошла ошибка при выборе курса")
