@@ -1,12 +1,25 @@
 from flask import Blueprint, render_template, flash, redirect, url_for, request
+from flask_login import login_required, current_user
 from app.models import User, Course, Material, MaterialFile
 from app import db
 import logging
+from functools import wraps
 
 logger = logging.getLogger(__name__)
-admin = Blueprint('admin', __name__, url_prefix='/admin')
+admin = Blueprint('admin', __name__)
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            flash('У вас нет прав для доступа к этой странице', 'error')
+            return redirect(url_for('main.index'))
+        return f(*args, **kwargs)
+    return decorated_function  # Исправлено: возвращаем decorated_function вместо admin_required
 
 @admin.route('/')
+@login_required
+@admin_required
 def index():
     """Главная страница административной панели"""
     try:
@@ -23,6 +36,8 @@ def index():
         return redirect(url_for('main.index'))
 
 @admin.route('/users')
+@login_required
+@admin_required
 def users():
     """Список всех пользователей"""
     try:
@@ -34,6 +49,8 @@ def users():
         return redirect(url_for('admin.index'))
 
 @admin.route('/users/add', methods=['POST'])
+@login_required
+@admin_required
 def add_user():
     """Добавление нового пользователя"""
     try:
@@ -59,7 +76,30 @@ def add_user():
         flash('Ошибка при добавлении пользователя', 'error')
         return redirect(url_for('admin.users'))
 
+@admin.route('/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_user(user_id):
+    """Удаление пользователя"""
+    try:
+        user = User.query.get_or_404(user_id)
+        if user.is_admin and User.query.filter_by(is_admin=True).count() <= 1:
+            flash('Невозможно удалить последнего администратора', 'error')
+            return redirect(url_for('admin.users'))
+
+        db.session.delete(user)
+        db.session.commit()
+        flash('Пользователь успешно удален', 'success')
+        return redirect(url_for('admin.users'))
+    except Exception as e:
+        logger.error(f"Ошибка при удалении пользователя: {str(e)}")
+        db.session.rollback()
+        flash('Ошибка при удалении пользователя', 'error')
+        return redirect(url_for('admin.users'))
+
 @admin.route('/courses')
+@login_required
+@admin_required
 def courses():
     """Список всех курсов"""
     try:
@@ -71,6 +111,8 @@ def courses():
         return redirect(url_for('admin.index'))
 
 @admin.route('/materials')
+@login_required
+@admin_required
 def materials():
     """Список всех материалов"""
     try:
@@ -82,10 +124,12 @@ def materials():
         return redirect(url_for('admin.index'))
 
 @admin.route('/files')
+@login_required
+@admin_required
 def files():
     """Список всех файлов"""
     try:
-        files = MaterialFile.query.order_by(MaterialFile.uploaded_at.desc()).all()
+        files = MaterialFile.query.all()
         return render_template('admin/files.html', files=files)
     except Exception as e:
         logger.error(f"Ошибка при загрузке списка файлов: {str(e)}")
@@ -93,6 +137,8 @@ def files():
         return redirect(url_for('admin.index'))
 
 @admin.route('/course/<int:course_id>/access', methods=['GET', 'POST'])
+@login_required
+@admin_required
 def manage_course_access(course_id):
     """Управление доступом к курсу"""
     try:

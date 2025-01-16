@@ -23,12 +23,11 @@ def create_app():
         "pool_recycle": 300,
         "pool_pre_ping": True,
     }
-    app.config["LOGIN_DISABLED"] = True  # Отключаем обязательную авторизацию
 
     # Инициализация расширений
     db.init_app(app)
     login_manager.init_app(app)
-    login_manager.login_view = None  # Отключаем редирект на страницу логина
+    login_manager.login_view = 'auth.login'  # Указываем view для логина
 
     with app.app_context():
         # Создание необходимых директорий
@@ -47,20 +46,25 @@ def create_app():
             db.session.rollback()
 
         # Регистрация блюпринтов
-        from app.routes import main
-        from app.admin import admin  # Добавляем импорт админ-блюпринта
+        try:
+            from app.routes import main
+            from app.admin import admin
+            from app.auth import auth
 
-        app.register_blueprint(main)
-        app.register_blueprint(admin)  # Регистрируем админ-блюпринт
+            app.register_blueprint(main)
+            app.register_blueprint(admin, url_prefix='/admin')  # Добавляем prefix для admin
+            app.register_blueprint(auth, url_prefix='/auth')
+            logger.info("Blueprints registered successfully")
+        except Exception as e:
+            logger.error(f"Error registering blueprints: {e}")
 
         # Создаем тестового админа если его нет
         try:
-            from app.models import User
-            admin = User.query.filter_by(username='admin').first()
-            if not admin:
-                admin = User(username='admin', email='admin@example.com', is_admin=True)
-                admin.set_password('admin')
-                db.session.add(admin)
+            admin_user = User.query.filter_by(username='admin').first()
+            if not admin_user:
+                admin_user = User(username='admin', email='admin@example.com', is_admin=True)
+                admin_user.set_password('admin')
+                db.session.add(admin_user)
                 db.session.commit()
                 logger.info("Admin user created successfully")
 
@@ -69,14 +73,14 @@ def create_app():
                 test_course = Course(
                     title='Тестовый курс',
                     description='Это тестовый курс для проверки функциональности',
-                    user_id=admin.id
+                    user_id=admin_user.id
                 )
                 db.session.add(test_course)
                 db.session.commit()
                 logger.info("Test course created successfully")
 
         except Exception as e:
-            logger.error(f"Error creating admin user: {e}")
+            logger.error(f"Error creating admin user or test course: {e}")
             db.session.rollback()
 
         @login_manager.user_loader
