@@ -474,3 +474,59 @@ def edit_material(material_id):
         db.session.rollback()
         flash('Произошла ошибка при редактировании материала', 'error')
         return redirect(url_for('main.course', course_id=material.course_id))
+
+# Добавляем новые маршруты для управления пользователями в конец файла
+
+@main.route('/users-management')
+def users_list():
+    """Страница со списком всех пользователей"""
+    try:
+        users = User.query.all()
+        return render_template('users/manage.html', users=users)
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке списка пользователей: {str(e)}")
+        flash('Произошла ошибка при загрузке данных', 'error')
+        return redirect(url_for('main.index'))
+
+@main.route('/users/<int:user_id>/courses', methods=['GET', 'POST'])
+def manage_user_courses(user_id):
+    """Управление доступом пользователя к курсам"""
+    try:
+        user = User.query.get_or_404(user_id)
+
+        if request.method == 'POST':
+            course_id = request.form.get('course_id')
+            action = request.form.get('action')
+
+            if not course_id or not action:
+                flash('Некорректные параметры запроса', 'error')
+                return redirect(url_for('main.manage_user_courses', user_id=user_id))
+
+            course = Course.query.get(course_id)
+            if not course:
+                flash('Курс не найден', 'error')
+                return redirect(url_for('main.manage_user_courses', user_id=user_id))
+
+            if action == 'grant':
+                if course not in user.courses:
+                    user.courses.append(course)
+                    flash(f'Доступ к курсу "{course.title}" предоставлен', 'success')
+            elif action == 'revoke':
+                if course in user.courses:
+                    user.courses.remove(course)
+                    flash(f'Доступ к курсу "{course.title}" отозван', 'success')
+
+            db.session.commit()
+
+        # Получаем все курсы для отображения
+        all_courses = Course.query.all()
+        return render_template(
+            'users/manage_courses.html',
+            user=user,
+            all_courses=all_courses
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка при управлении доступом пользователя: {str(e)}")
+        flash('Произошла ошибка при обработке запроса', 'error')
+        return redirect(url_for('main.users_list'))
