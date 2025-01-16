@@ -3,6 +3,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import json
 from enum import Enum
+import logging
+
+logger = logging.getLogger(__name__)
 
 class NotificationType(Enum):
     INFO = 'info'
@@ -18,27 +21,12 @@ course_users = db.Table('course_users',
     db.Column('granted_by', db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
 )
 
-class Course(db.Model):
-    __tablename__ = 'courses'
-
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(120), nullable=False)
-    description = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-
-    # Relationships
-    materials = db.relationship('Material', backref='course', lazy=True, cascade='all, delete-orphan')
-
-    def __repr__(self):
-        return f'<Course {self.title}>'
-
 class User(db.Model):
     __tablename__ = 'users'
 
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(64), unique=True, nullable=False, index=True)
-    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     telegram_id = db.Column(db.String(32), unique=True, nullable=True, index=True)
     is_admin = db.Column(db.Boolean, default=False)
@@ -53,12 +41,15 @@ class User(db.Model):
                                   cascade='all, delete-orphan')
 
     # Доступные курсы (для обычных пользователей)
-    courses = db.relationship('Course', 
-                            secondary=course_users,
-                            primaryjoin=(id == course_users.c.user_id),
-                            secondaryjoin=(id == course_users.c.course_id),
-                            backref=db.backref('users', lazy='dynamic'),
-                            lazy='dynamic')
+    courses = db.relationship(
+        'Course',
+        secondary=course_users,
+        primaryjoin=(id == course_users.c.user_id),
+        secondaryjoin='Course.id == course_users.c.course_id',
+        foreign_keys=[course_users.c.user_id, course_users.c.course_id],
+        backref=db.backref('users', lazy='dynamic'),
+        lazy='dynamic'
+    )
 
     def set_password(self, password):
         if not password:
@@ -75,26 +66,55 @@ class User(db.Model):
 
     def has_access_to_course(self, course):
         """Проверяет, имеет ли пользователь доступ к курсу"""
-        if self.is_admin or course.user_id == self.id:
-            return True
-        return self.courses.filter_by(id=course.id).first() is not None
+        try:
+            if self.is_admin or course.user_id == self.id:
+                return True
+            return self.courses.filter_by(id=course.id).first() is not None
+        except Exception as e:
+            logger.error(f"Error checking course access: {e}")
+            return False
 
     def grant_course_access(self, course):
         """Предоставляет доступ к курсу"""
-        if not self.has_access_to_course(course):
-            self.courses.append(course)
-            return True
-        return False
+        try:
+            if not self.has_access_to_course(course):
+                self.courses.append(course)
+                logger.info(f"Granted access to course {course.id} for user {self.id}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error granting course access: {e}")
+            return False
 
     def revoke_course_access(self, course):
         """Отзывает доступ к курсу"""
-        if self.has_access_to_course(course):
-            self.courses.remove(course)
-            return True
-        return False
+        try:
+            if self.has_access_to_course(course):
+                self.courses.remove(course)
+                logger.info(f"Revoked access to course {course.id} for user {self.id}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error revoking course access: {e}")
+            return False
 
     def __repr__(self):
         return f'<User {self.username}>'
+
+class Course(db.Model):
+    __tablename__ = 'courses'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+
+    # Relationships
+    materials = db.relationship('Material', backref='course', lazy=True, cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<Course {self.title}>'
 
 class Material(db.Model):
     __tablename__ = 'materials'
