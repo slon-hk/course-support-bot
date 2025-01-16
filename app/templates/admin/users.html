@@ -22,9 +22,8 @@
                             <th>ID</th>
                             <th>Имя пользователя</th>
                             <th>Email</th>
-                            <th>Дата регистрации</th>
-                            <th>Последний вход</th>
                             <th>Статус</th>
+                            <th>Действия</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -33,12 +32,17 @@
                             <td>{{ user.id }}</td>
                             <td>{{ user.username }}</td>
                             <td>{{ user.email }}</td>
-                            <td>{{ user.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
-                            <td>{{ user.last_login.strftime('%d.%m.%Y %H:%M') if user.last_login else 'Нет входа' }}</td>
                             <td>
                                 <span class="badge {% if user.is_admin %}bg-danger{% else %}bg-success{% endif %}">
                                     {% if user.is_admin %}Администратор{% else %}Пользователь{% endif %}
                                 </span>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-danger" 
+                                        onclick="if(confirm('Удалить пользователя?')) document.getElementById('deleteUser{{ user.id }}').submit()">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                                <form id="deleteUser{{ user.id }}" action="{{ url_for('admin.delete_user', user_id=user.id) }}" method="POST" style="display: none;"></form>
                             </td>
                         </tr>
                         {% endfor %}
@@ -57,7 +61,7 @@
                 <h5 class="modal-title">Добавить пользователя</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="{{ url_for('main.add_user') }}">
+            <form method="POST" action="{{ url_for('admin.add_user') }}">
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="username" class="form-label">Имя пользователя</label>

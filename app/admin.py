@@ -26,12 +26,38 @@ def index():
 def users():
     """Список всех пользователей"""
     try:
-        users = User.query.order_by(User.created_at.desc()).all()
+        users = User.query.order_by(User.id.desc()).all()
         return render_template('admin/users.html', users=users)
     except Exception as e:
         logger.error(f"Ошибка при загрузке списка пользователей: {str(e)}")
         flash('Ошибка при загрузке списка пользователей', 'error')
         return redirect(url_for('admin.index'))
+
+@admin.route('/users/add', methods=['POST'])
+def add_user():
+    """Добавление нового пользователя"""
+    try:
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        is_admin = request.form.get('is_admin') == 'on'
+
+        if not username or not email or not password:
+            flash('Все поля обязательны для заполнения', 'error')
+            return redirect(url_for('admin.users'))
+
+        user = User(username=username, email=email, is_admin=is_admin)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+
+        flash('Пользователь успешно добавлен', 'success')
+        return redirect(url_for('admin.users'))
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении пользователя: {str(e)}")
+        db.session.rollback()
+        flash('Ошибка при добавлении пользователя', 'error')
+        return redirect(url_for('admin.users'))
 
 @admin.route('/courses')
 def courses():
