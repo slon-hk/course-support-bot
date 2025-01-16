@@ -59,18 +59,6 @@ def dashboard():
         flash('Ошибка при загрузке статистики', 'error')
         return redirect(url_for('main.index'))
 
-@main.route('/users-management')
-@admin_required
-def users_management():
-    """Список всех пользователей"""
-    try:
-        users = User.query.order_by(User.id.desc()).all()
-        return render_template('admin/users.html', users=users)
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке списка пользователей: {str(e)}")
-        flash('Ошибка при загрузке списка пользователей', 'error')
-        return redirect(url_for('main.dashboard'))
-
 @main.route('/courses-management')
 @admin_required
 def courses_management():
@@ -226,6 +214,7 @@ def delete_course_old(course_id):
         db.session.rollback()
         flash('Произошла ошибка при удалении курса', 'error')
         return redirect(url_for('main.index'))
+
 
 @main.route('/courses-management/delete/<int:course_id>', methods=['POST'])
 @admin_required
@@ -413,71 +402,9 @@ def delete_file(file_id):
         flash('Произошла ошибка при удалении файла', 'error')
         return redirect(url_for('main.course', course_id=file.material.course_id))
 
-@main.route('/users')
-@admin_required
-def users():
-    """Страница управления пользователями"""
-    try:
-        users = User.query.all()
-        return render_template('admin/users.html', users=users)
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке списка пользователей: {str(e)}")
-        flash('Произошла ошибка при загрузке данных', 'error')
-        return redirect(url_for('main.index'))
-
-
-@main.route('/materials')
-@admin_required
-def materials():
-    """Страница управления материалами"""
-    try:
-        materials = Material.query.all()
-        return render_template('admin/materials.html', materials=materials)
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке списка материалов: {str(e)}")
-        flash('Произошла ошибка при загрузке данных', 'error')
-        return redirect(url_for('main.index'))
-
-@main.route('/files')
-@admin_required
-def files():
-    """Страница управления файлами"""
-    try:
-        files = MaterialFile.query.all()
-        return render_template('admin/files.html', files=files)
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке списка файлов: {str(e)}")
-        flash('Произошла ошибка при загрузке данных', 'error')
-        return redirect(url_for('main.index'))
-
-@main.route('/material/<int:material_id>/edit', methods=['GET', 'POST'])
-def edit_material(material_id):
-    """Редактирование материала"""
-    try:
-        material = Material.query.get_or_404(material_id)
-        title = request.form.get('title')
-        content = request.form.get('content', '')
-
-        if not title:
-            flash('Название материала обязательно', 'error')
-            return redirect(url_for('main.course', course_id=material.course_id))
-
-        material.title = title
-        material.content = content
-        db.session.commit()
-
-        flash('Материал успешно обновлен', 'success')
-        return redirect(url_for('main.course', course_id=material.course_id))
-
-    except Exception as e:
-        logger.error(f"Ошибка при редактировании материала: {str(e)}")
-        db.session.rollback()
-        flash('Произошла ошибка при редактировании материала', 'error')
-        return redirect(url_for('main.course', course_id=material.course_id))
-
-# Добавляем новые маршруты для управления пользователями в конец файла
-
+# Маршруты управления пользователями
 @main.route('/users-management')
+@admin_required
 def users_list():
     """Страница со списком всех пользователей"""
     try:
@@ -489,6 +416,7 @@ def users_list():
         return redirect(url_for('main.index'))
 
 @main.route('/users/<int:user_id>/courses', methods=['GET', 'POST'])
+@admin_required
 def manage_user_courses(user_id):
     """Управление доступом пользователя к курсам"""
     try:
@@ -530,3 +458,28 @@ def manage_user_courses(user_id):
         logger.error(f"Ошибка при управлении доступом пользователя: {str(e)}")
         flash('Произошла ошибка при обработке запроса', 'error')
         return redirect(url_for('main.users_list'))
+
+@main.route('/material/<int:material_id>/edit', methods=['GET', 'POST'])
+def edit_material(material_id):
+    """Редактирование материала"""
+    try:
+        material = Material.query.get_or_404(material_id)
+        title = request.form.get('title')
+        content = request.form.get('content', '')
+
+        if not title:
+            flash('Название материала обязательно', 'error')
+            return redirect(url_for('main.course', course_id=material.course_id))
+
+        material.title = title
+        material.content = content
+        db.session.commit()
+
+        flash('Материал успешно обновлен', 'success')
+        return redirect(url_for('main.course', course_id=material.course_id))
+
+    except Exception as e:
+        logger.error(f"Ошибка при редактировании материала: {str(e)}")
+        db.session.rollback()
+        flash('Произошла ошибка при редактировании материала', 'error')
+        return redirect(url_for('main.course', course_id=material.course_id))

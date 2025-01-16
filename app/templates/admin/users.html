@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>
+                <i class="bi bi-people me-2"></i>Управление пользователями
+            </h2>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Имя пользователя</th>
+                            <th>Email</th>
+                            <th>Доступные курсы</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                        <tr>
+                            <td>{{ user.id }}</td>
+                            <td>{{ user.username }}</td>
+                            <td>{{ user.email }}</td>
+                            <td>
+                                <ul class="list-unstyled mb-0">
+                                {% for course in user.courses %}
+                                    <li>{{ course.title }}</li>
+                                {% else %}
+                                    <li class="text-muted">Нет доступных курсов</li>
+                                {% endfor %}
+                                </ul>
+                            </td>
+                            <td>
+                                <a href="{{ url_for('main.manage_user_courses', user_id=user.id) }}" 
+                                   class="btn btn-sm btn-primary">
+                                    <i class="bi bi-book me-1"></i>Управление доступом
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
