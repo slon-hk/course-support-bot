@@ -18,6 +18,21 @@ course_users = db.Table('course_users',
     db.Column('granted_by', db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
 )
 
+class Course(db.Model):
+    __tablename__ = 'courses'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+
+    # Relationships
+    materials = db.relationship('Material', backref='course', lazy=True, cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<Course {self.title}>'
+
 class User(db.Model):
     __tablename__ = 'users'
 
@@ -38,12 +53,12 @@ class User(db.Model):
                                   cascade='all, delete-orphan')
 
     # Доступные курсы (для обычных пользователей)
-    available_courses = db.relationship('Course', 
-                                      secondary=course_users,
-                                      primaryjoin='User.id == course_users.c.user_id',
-                                      secondaryjoin='Course.id == course_users.c.course_id',
-                                      lazy='dynamic',
-                                      backref=db.backref('allowed_users', lazy='dynamic'))
+    courses = db.relationship('Course', 
+                            secondary=course_users,
+                            primaryjoin=(id == course_users.c.user_id),
+                            secondaryjoin=(id == course_users.c.course_id),
+                            backref=db.backref('users', lazy='dynamic'),
+                            lazy='dynamic')
 
     def set_password(self, password):
         if not password:
@@ -62,25 +77,24 @@ class User(db.Model):
         """Проверяет, имеет ли пользователь доступ к курсу"""
         if self.is_admin or course.user_id == self.id:
             return True
-        return self.available_courses.filter_by(id=course.id).first() is not None
+        return self.courses.filter_by(id=course.id).first() is not None
+
+    def grant_course_access(self, course):
+        """Предоставляет доступ к курсу"""
+        if not self.has_access_to_course(course):
+            self.courses.append(course)
+            return True
+        return False
+
+    def revoke_course_access(self, course):
+        """Отзывает доступ к курсу"""
+        if self.has_access_to_course(course):
+            self.courses.remove(course)
+            return True
+        return False
 
     def __repr__(self):
         return f'<User {self.username}>'
-
-class Course(db.Model):
-    __tablename__ = 'courses'
-
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(120), nullable=False)
-    description = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-
-    # Relationships
-    materials = db.relationship('Material', backref='course', lazy=True, cascade='all, delete-orphan')
-
-    def __repr__(self):
-        return f'<Course {self.title}>'
 
 class Material(db.Model):
     __tablename__ = 'materials'

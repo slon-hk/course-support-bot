@@ -436,15 +436,15 @@ def manage_user_courses(user_id):
                 return redirect(url_for('main.manage_user_courses', user_id=user_id))
 
             if action == 'grant':
-                if course not in user.courses:
-                    user.courses.append(course)
+                if user.grant_course_access(course):
+                    db.session.commit()
                     flash(f'Доступ к курсу "{course.title}" предоставлен', 'success')
             elif action == 'revoke':
-                if course in user.courses:
-                    user.courses.remove(course)
+                if user.revoke_course_access(course):
+                    db.session.commit()
                     flash(f'Доступ к курсу "{course.title}" отозван', 'success')
 
-            db.session.commit()
+            return redirect(url_for('main.manage_user_courses', user_id=user_id))
 
         # Получаем все курсы для отображения
         all_courses = Course.query.all()
